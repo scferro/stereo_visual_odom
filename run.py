@@ -77,7 +77,7 @@ for frame_number in range(num_images):
         current_pose = odom.estimate_current_pose(points_now, depth_map)
         
         R_change, t_change = odom.calculate_pose_change(current_pose)
-        print(R_change, t_change)
+        print(R_change, t_changegi)
 
         R_updated = R_change @ R_current 
         t_updated = R_change @ t_current + t_change 

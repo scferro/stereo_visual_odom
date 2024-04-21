@@ -12,16 +12,25 @@ class StereoVisualOdometry:
         self.points3d_prev = None
         self.previous_pose = None
 
-    def detect_and_match_features(self, img_now, img_prev):
+    def detect_and_match_features(self, img_now, img_prev, thresh=0.5):
         # Using ORB detector for demonstration
         orb = cv2.ORB_create()
         kp1, des1 = orb.detectAndCompute(img_now, None)
         kp2, des2 = orb.detectAndCompute(img_prev, None)
 
         # Create BFMatcher object and match descriptors
-        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        matches = bf.match(des1, des2)
-        matches = sorted(matches, key=lambda x: x.distance)
+        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+        matches = bf.knnMatch(des1, des2, k=2)
+        # matches = sorted(matches, key=lambda x: x.distance)
+
+        # # Apply ratio test to filter matches
+        good_matches = []
+        for match in matches:
+            print(match[0])
+            print(match[1])
+            if match[0].distance < thresh * match[1].distance:
+                good_matches.append(match[0])
+        matches = good_matches.copy()
 
         # Extract location of good matches
         points_now = np.zeros((len(matches), 2), dtype=np.float32)
@@ -84,13 +93,6 @@ class StereoVisualOdometry:
         if self.points3d_prev is None:
             self.points3d_prev = points3d_now
 
-        # Find the nearest previous 3D point for each current 3D point
-        points3d_prev_assoc = np.zeros_like(points3d_now)
-        for i, pt in enumerate(points3d_now):
-            distances = np.linalg.norm(self.points3d_prev - pt, axis=1)
-            nearest_index = np.argmin(distances)
-            points3d_prev_assoc[i] = self.points3d_prev[nearest_index]
-
         # Use solvePnPRansac to estimate the pose from the associated points
         dist_coeffs = np.zeros((4, 1))
         camera_matrix = np.array([
@@ -99,7 +101,7 @@ class StereoVisualOdometry:
             [0, 0, 1]
         ], dtype=np.float32)
 
-        _, rvec, tvec, _ = cv2.solvePnPRansac(points3d_prev_assoc, points2d_now, camera_matrix, dist_coeffs)
+        _, rvec, tvec, _ = cv2.solvePnPRansac(self.points3d_prev, points2d_now, camera_matrix, dist_coeffs)
         R, _ = cv2.Rodrigues(rvec)
         current_pose = (R, tvec)
 

@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 from StereoVisualOdom import StereoVisualOdometry
+import matplotlib
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
@@ -50,7 +51,7 @@ current_pose = np.eye(4)
 print('Analyzing images...')
 
 # Select a single image pair to analyze
-frame_number = 1350
+frame_number = 750
 file_name = f"{frame_number:06d}.png"
 file_path_0 = 'data_odometry_gray/dataset/sequences/' + dataset_number + '/image_0/' + file_name
 file_path_1 = 'data_odometry_gray/dataset/sequences/' + dataset_number + '/image_1/' + file_name
@@ -67,5 +68,32 @@ if img0 is not None and img1 is not None:
     plt.colorbar()
     plt.title('Depth Map')
     plt.show()
+
+    # Detect and match features between the two images
+    points_now, points_prev = odom.detect_and_match_features(img0, img1)
+
+    # Create a plot to show both images and the matches
+    fig, ax = plt.subplots(1, 2, figsize=(15, 10))
+
+    # Show first image
+    ax[0].imshow(cv2.cvtColor(img0, cv2.COLOR_BGR2RGB))
+    ax[0].set_title('Image at Time t-1')
+    ax[0].axis('off')
+
+    # Show second image
+    ax[1].imshow(cv2.cvtColor(img1, cv2.COLOR_BGR2RGB))
+    ax[1].set_title('Image at Time t')
+    ax[1].axis('off')
+
+    # Draw lines between matched points
+    for (x_now, y_now), (x_prev, y_prev) in zip(points_now, points_prev):
+        # Line from the point in the first image to the same point in the second image
+        con = matplotlib.patches.ConnectionPatch(xyA=(x_now, y_now), xyB=(x_prev, y_prev),
+                                                coordsA="data", coordsB="data",
+                                                axesA=ax[1], axesB=ax[0], color="yellow")
+        ax[1].add_artist(con)
+
+    plt.show()
+
 
 print('Completed photo analysis!')

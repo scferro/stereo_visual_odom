@@ -78,6 +78,42 @@ class StereoVisualOdometry:
         depth[depth > self.max_depth] = self.max_depth
         return depth
     
+    def estimate_current_pose(self, points2d_now, depth_map):
+        # Project the current 2D points into 3D space using the current depth map
+        points3d_now = np.array([self.project_to_3d(pt, depth_map[int(pt[1]), int(pt[0])]) for pt in points2d_now])
+        if self.points3d_prev is None:
+            self.points3d_prev = points3d_now
+
+        # Find the nearest previous 3D point for each current 3D point
+        points3d_prev_assoc = np.zeros_like(points3d_now)
+        for i, pt in enumerate(points3d_now):
+            distances = np.linalg.norm(self.points3d_prev - pt, axis=1)
+            nearest_index = np.argmin(distances)
+            points3d_prev_assoc[i] = self.points3d_prev[nearest_index]
+
+        # Use solvePnPRansac to estimate the pose from the associated points
+        dist_coeffs = np.zeros((4, 1))
+        camera_matrix = np.array([
+            [self.focal_length, 0, self.pp[0]],
+            [0, self.focal_length, self.pp[1]],
+            [0, 0, 1]
+        ], dtype=np.float32)
+
+        _, rvec, tvec, _ = cv2.solvePnPRansac(points3d_prev_assoc, points2d_now, camera_matrix, dist_coeffs)
+        R, _ = cv2.Rodrigues(rvec)
+        current_pose = (R, tvec)
+
+        # Update previous points and pose
+        self.points3d_prev = points3d_now
+        self.previous_pose = current_pose
+
+        return current_pose
+
+    def project_to_3d(self, point2d, depth):
+        x = (point2d[0] - self.pp[0]) * depth / self.focal_length
+        y = (point2d[1] - self.pp[1]) * depth / self.focal_length
+        return np.array([x, y, depth])
+
     def calculate_pose_change(self, current_pose):
         if self.previous_pose is not None:
             R_prev, t_prev = self.previous_pose
@@ -92,21 +128,3 @@ class StereoVisualOdometry:
 
         self.previous_pose = current_pose
         return R_change, t_change
-
-    def estimate_current_pose(self, points2d_now, depth_map):
-        points3d_now = [self.project_to_3d(pt, depth_map[int(pt[1]), int(pt[0])]) for pt in points2d_now]
-        points3d_now = np.array(points3d_now, dtype=np.float32)
-
-        dist_coeffs = np.zeros((4, 1))
-        camera_matrix = np.array([[self.focal_length, 0, self.pp[0]], [0, self.focal_length, self.pp[1]], [0, 0, 1]], dtype=np.float32)
-        _, rvec, tvec, _ = cv2.solvePnPRansac(points3d_now, points2d_now, camera_matrix, dist_coeffs)
-        R, _ = cv2.Rodrigues(rvec)
-        current_pose = (R, tvec)
-
-        self.points3d_prev = points3d_now
-        return current_pose
-    
-    def project_to_3d(self, point2d, depth):
-        x = (point2d[0] - self.pp[0]) * depth / self.focal_length
-        y = (point2d[1] - self.pp[1]) * depth / self.focal_length
-        return [x, y, depth]

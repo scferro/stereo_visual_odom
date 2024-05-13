@@ -27,8 +27,8 @@ def load_stereo_images(dataset_number, num_images):
 
 
 
-dataset_number = '03'  
-num_images = 300
+dataset_number = '00'  
+num_images = 500
 
 # Initialize dictionaries to store the values
 P0 = []
@@ -86,13 +86,13 @@ for left_img, right_img in stereo_images:
 # Display trajectory
 trajectory = vo.get_trajectory()
 fig, ax = plt.subplots()
-ax.plot(trajectory[:, 0], trajectory[:, 1], 'b-')  # Plot only X and Y coordinates
+ax.plot(trajectory[:, 2], trajectory[:, 0], 'b-')  # Plot only X and Y coordinates
 
 # Mark the start and end points
 start = trajectory[0]
 end = trajectory[-1]
-ax.scatter(start[0], start[1], color='red', s=30, zorder=5, label='Start')
-ax.scatter(end[0], end[1], color='green', s=30, zorder=5, label='End')
+ax.scatter(start[2], start[1], color='red', s=30, zorder=5, label='Start')
+ax.scatter(end[2], end[0], color='green', s=30, zorder=5, label='End')
 
 ax.set_xlabel('X')
 ax.set_ylabel('Y')

@@ -3,14 +3,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 from StereoVisualOdom import StereoVisualOdometry
 
-def display_landmark_points(image1_path, image2_path):
+def display_landmark_points(image1_path, image2_path, image1_path_r, image2_path_r):
     # Read images in color for display
     img1_color = cv2.imread(image1_path, cv2.IMREAD_COLOR)
     img2_color = cv2.imread(image2_path, cv2.IMREAD_COLOR)
+    img1_color_r = cv2.imread(image1_path_r, cv2.IMREAD_COLOR)
+    img2_color_r = cv2.imread(image2_path_r, cv2.IMREAD_COLOR)
     
     # Convert images to grayscale for processing
     img1_gray = cv2.cvtColor(img1_color, cv2.COLOR_BGR2GRAY)
     img2_gray = cv2.cvtColor(img2_color, cv2.COLOR_BGR2GRAY)
+    img1_gray_r = cv2.cvtColor(img1_color_r, cv2.COLOR_BGR2GRAY)
+    img2_gray_r = cv2.cvtColor(img2_color_r, cv2.COLOR_BGR2GRAY)
 
     if img1_gray is None or img2_gray is None or img1_color is None or img2_color is None:
         print("Error loading images. Please check the paths.")
@@ -27,6 +31,10 @@ def display_landmark_points(image1_path, image2_path):
 
     # Detect features and matches using grayscale images
     matches = vo.feature_matching(img1_gray, img2_gray)
+    vo.process_frame(img1_gray, img1_gray_r)
+    vo.process_frame(img2_gray, img2_gray_r)
+    pose = vo.get_pose()
+    print(pose)
 
     # Ensure there are matches to draw
     if not matches:
@@ -73,5 +81,7 @@ file_name_0 = f"{frame_number:06d}.png"
 file_name_1 = f"{(frame_number+1):06d}.png"
 file_path_0 = f'{base_path}{dataset_number}/image_0/{file_name_0}'
 file_path_1 = f'{base_path}{dataset_number}/image_0/{file_name_1}'
+file_path_0_r = f'{base_path}{dataset_number}/image_1/{file_name_0}'
+file_path_1_r = f'{base_path}{dataset_number}/image_1/{file_name_1}'
 
-display_landmark_points(file_path_0, file_path_1)
+display_landmark_points(file_path_0, file_path_1, file_path_0_r, file_path_1_r)

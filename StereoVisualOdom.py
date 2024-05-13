@@ -2,131 +2,98 @@ import cv2
 import numpy as np
 
 class StereoVisualOdometry:
-    def __init__(self, focal_length, principal_point, baseline):
+    def __init__(self, focal_length, pp, baseline, camera_matrix):
         self.focal_length = focal_length
-        self.pp = principal_point
+        self.pp = pp
         self.baseline = baseline
+        self.camera_matrix = camera_matrix
+        self.sift = cv2.SIFT_create()
+        self.bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
+        self.prev_left_image = None
+        self.prev_right_image = None
+        self.prev_points_3D = None
+        self.R = np.eye(3)
+        self.t = np.zeros((3, 1))
+        self.trajectory = []
         self.max_depth = 50
         self.min_disparity = 2
         self.max_disparity = 65
-        self.points3d_prev = None
-        self.previous_pose = None
-
-    def detect_and_match_features(self, img_now, img_prev, thresh=0.5):
-        # Using ORB detector for demonstration
-        orb = cv2.ORB_create()
-        kp1, des1 = orb.detectAndCompute(img_now, None)
-        kp2, des2 = orb.detectAndCompute(img_prev, None)
-
-        # Create BFMatcher object and match descriptors
-        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
-        matches = bf.knnMatch(des1, des2, k=2)
-        # matches = sorted(matches, key=lambda x: x.distance)
-
-        # # Apply ratio test to filter matches
-        good_matches = []
-        for match in matches:
-            print(match[0])
-            print(match[1])
-            if match[0].distance < thresh * match[1].distance:
-                good_matches.append(match[0])
-        matches = good_matches.copy()
-
-        # Extract location of good matches
-        points_now = np.zeros((len(matches), 2), dtype=np.float32)
-        points_prev = np.zeros((len(matches), 2), dtype=np.float32)
-
-        for i, match in enumerate(matches):
-            points_now[i, :] = kp1[match.queryIdx].pt
-            points_prev[i, :] = kp2[match.trainIdx].pt
-
-        return points_now, points_prev
-
-    def compute_disparity_map(self, img_left, img_right):
-        # Parameters for stereo matching (can be tuned for better performance)
-        window_size = 5
-        num_disparities = 16 * window_size
-        block_size = 8
-        stereo = cv2.StereoSGBM_create(
-            minDisparity=self.min_disparity,
-            numDisparities=num_disparities,
-            blockSize=block_size,
-            P1=2 * block_size ** 2,
-            P2=64 * block_size ** 2,
-            disp12MaxDiff=2,
-            uniquenessRatio=2,
-            speckleWindowSize=16,
-            speckleRange=4,
-            mode=cv2.STEREO_SGBM_MODE_SGBM
+        self.stereo = cv2.StereoSGBM_create(
+            minDisparity=0,
+            numDisparities=64,
+            blockSize=11,
+            P1=8 * 1 * 11**2,
+            P2=32 * 1 * 11**2,
+            mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY
         )
 
-        
-        # Ensure images are in grayscale
-        img_0 = cv2.cvtColor(img_left, cv2.COLOR_BGR2GRAY)
-        img_1 = cv2.cvtColor(img_right, cv2.COLOR_BGR2GRAY)
-
-        # Normalize images
-        img_0 = cv2.equalizeHist(img_0)
-        img_1 = cv2.equalizeHist(img_1)
-
-        disparity = stereo.compute(img_0, img_1).astype(np.float32) / 16
-        
-        # Filtering the array to include only values greater than 0
+    def compute_disparity(self, img_left, img_right):
+        disparity = self.stereo.compute(img_left, img_right).astype(np.float32) / 16.0
         disparity[disparity == 0.0] = self.min_disparity
         disparity[disparity == -1.0] = self.min_disparity
         disparity[disparity > self.max_disparity] = self.max_disparity
-
-        disparity = cv2.medianBlur(disparity, ksize=5)  
-
-        return disparity
-
-    def disparity_to_depth(self, disparity):
-    # Set a minimum disparity threshold to avoid division by zero or very small numbers
-        numerator = self.focal_length * self.baseline
-        depth = numerator / disparity
-        depth[depth > self.max_depth] = self.max_depth
-        return depth
+        return cv2.medianBlur(disparity, ksize=5)
     
-    def estimate_current_pose(self, points2d_now, depth_map):
-        # Project the current 2D points into 3D space using the current depth map
-        points3d_now = np.array([self.project_to_3d(pt, depth_map[int(pt[1]), int(pt[0])]) for pt in points2d_now])
-        if self.points3d_prev is None:
-            self.points3d_prev = points3d_now
+    def feature_matching(self, img1, img2):
+        keypoints1, descriptors1 = self.sift.detectAndCompute(img1, None)
+        keypoints2, descriptors2 = self.sift.detectAndCompute(img2, None)
+        if descriptors1 is None or descriptors2 is None:
+            return []  # No descriptors to match
 
-        # Use solvePnPRansac to estimate the pose from the associated points
-        dist_coeffs = np.zeros((4, 1))
-        camera_matrix = np.array([
-            [self.focal_length, 0, self.pp[0]],
-            [0, self.focal_length, self.pp[1]],
-            [0, 0, 1]
-        ], dtype=np.float32)
+        matches = self.bf.knnMatch(descriptors1, descriptors2, k=2)
+        good_matches = []
+        for m, n in matches:
+            if m.distance < 0.25 * n.distance:
+                if m.queryIdx < len(keypoints1) and m.trainIdx < len(keypoints2):
+                    good_matches.append((m, keypoints1[m.queryIdx], keypoints2[m.trainIdx]))
+        return good_matches
 
-        _, rvec, tvec, _ = cv2.solvePnPRansac(self.points3d_prev, points2d_now, camera_matrix, dist_coeffs)
+    def process_frame(self, left_image, right_image):
+        if self.prev_left_image is None:
+            self.prev_left_image = left_image
+            self.prev_right_image = right_image
+            return np.eye(4)
+
+        disparity = self.compute_disparity(cv2.equalizeHist(self.prev_left_image), cv2.equalizeHist(self.prev_right_image))
+        matches = self.feature_matching(self.prev_left_image, left_image)
+
+        points1 = np.float32([m[1].pt for m in matches])
+        points2 = np.float32([m[2].pt for m in matches])
+
+        valid_3D_points, valid_2D_points = self.calculate_3D_points(disparity, points1, points2)
+        if len(valid_3D_points) >= 4:
+            self.estimate_motion(valid_3D_points, valid_2D_points)
+
+        self.prev_left_image = left_image
+        self.prev_right_image = right_image
+
+        return self.current_transformation_matrix()
+
+    def calculate_3D_points(self, disparity, points1, points2):
+        valid_3D_points = []
+        valid_2D_points = []
+        for pt1, pt2 in zip(points1, points2):
+            d = disparity[int(pt1[1]), int(pt1[0])]
+            if d > 0:
+                z = self.focal_length * self.baseline / d
+                x = (pt1[0] - self.pp[0]) * z / self.focal_length
+                y = (pt1[1] - self.pp[1]) * z / self.focal_length
+                valid_3D_points.append([x, y, z])
+                valid_2D_points.append(pt2)
+        return np.array(valid_3D_points), np.array(valid_2D_points)
+
+    def estimate_motion(self, points_3D, points_2D):
+        _, rvec, tvec, inliers = cv2.solvePnPRansac(points_3D, points_2D, self.camera_matrix, None)
         R, _ = cv2.Rodrigues(rvec)
-        current_pose = (R, tvec)
+        self.R = self.R @ R
+        self.t += self.R @ tvec
+        self.trajectory.append(self.t.ravel().copy())
 
-        # Update previous points and pose
-        self.points3d_prev = points3d_now
-        self.previous_pose = current_pose
+    def current_transformation_matrix(self):
+        return np.vstack((np.hstack((self.R, self.t)), [0, 0, 0, 1]))
 
-        return current_pose
+    def get_pose(self):
+        return self.R, self.t
 
-    def project_to_3d(self, point2d, depth):
-        x = (point2d[0] - self.pp[0]) * depth / self.focal_length
-        y = (point2d[1] - self.pp[1]) * depth / self.focal_length
-        return np.array([x, y, depth])
-
-    def calculate_pose_change(self, current_pose):
-        if self.previous_pose is not None:
-            R_prev, t_prev = self.previous_pose
-            R_current, t_current = current_pose
-
-            # Calculate the relative rotation and translation
-            R_change = np.linalg.inv(R_current) @ R_prev
-            t_change = np.linalg.inv(R_current) @ (t_prev - t_current)
-        else:
-            R_change = np.eye(3)
-            t_change = np.zeros((3, 1))
-
-        self.previous_pose = current_pose
-        return R_change, t_change
+    def get_trajectory(self):
+        return np.array(self.trajectory)

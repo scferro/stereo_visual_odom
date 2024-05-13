@@ -1,13 +1,34 @@
 import cv2
 import numpy as np
-from StereoVisualOdom import StereoVisualOdometry
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+from StereoVisualOdom import StereoVisualOdometry
+import matplotlib.colors as mcolors
+import matplotlib.cm as cm
+
+def load_stereo_images(dataset_number, num_images):
+    images = []
+    base_path = 'data_odometry_gray/dataset/sequences/'
+    for frame_number in range(num_images):
+        file_name = f"{frame_number:06d}.png"
+        file_path_0 = f'{base_path}{dataset_number}/image_0/{file_name}'
+        file_path_1 = f'{base_path}{dataset_number}/image_1/{file_name}'
+
+        img0 = cv2.imread(file_path_0, cv2.IMREAD_GRAYSCALE)
+        img1 = cv2.imread(file_path_1, cv2.IMREAD_GRAYSCALE)
+
+        if img0 is not None and img1 is not None:
+            images.append((img0, img1))
+            if (frame_number+1) % 20 == 0:
+                print("Imported " + str(frame_number+1) + " frames.")
+        else:
+            print(f"Warning: Missing images at frame {frame_number}")
+            return images
+    return images
 
 
-# Set the number of image pairs to analyze and the dataset to look at
-num_images = 100
-dataset_number = '00'
+
+dataset_number = '03'  
+num_images = 300
 
 # Initialize dictionaries to store the values
 P0 = []
@@ -40,79 +61,43 @@ C2 = -np.linalg.inv(M1).dot(t1)
 
 # Focal length and principal point 
 focal_length = P0[0]  
-principal_point = (P0[2], P0[6])
+cx = P0[2]
+cy = P0[6]
 baseline = np.linalg.norm(C2 - C1)
-print(focal_length, principal_point, baseline)
+camera_matrix = np.array([[focal_length, 0, cx], [0, focal_length, cy], [0, 0, 1]])
 
-# Initialize object
-odom = StereoVisualOdometry(focal_length, principal_point, baseline)
+vo = StereoVisualOdometry(focal_length, (cx, cy), baseline, camera_matrix)
 
-# Initialize the initial pose as the identity matrix if starting from origin
-current_pose = np.eye(4)
+# Import images
+print("Importing images...")
+stereo_images = load_stereo_images(dataset_number, num_images)
+print("Import complete!")
 
-# Initialize a list to store the poses
-pose_list = [np.array([0., 0., 0.])]  # Start at the origin
+print("Processing frames...")
+count = 0
+for left_img, right_img in stereo_images:
+    vo.process_frame(left_img, right_img)
+    count += 1
+    if count % 10 == 0:
+        print(str(count) + " frames processed.")
+        tf = vo.get_pose()
+        print(tf)
 
-# Initialize rotation and translation
-R_current = np.eye(3)
-t_current = np.zeros((3, 1))
+# Display trajectory
+trajectory = vo.get_trajectory()
+fig, ax = plt.subplots()
+ax.plot(trajectory[:, 0], trajectory[:, 1], 'b-')  # Plot only X and Y coordinates
 
-print('Analyzing images...')
-img0_prev = None
+# Mark the start and end points
+start = trajectory[0]
+end = trajectory[-1]
+ax.scatter(start[0], start[1], color='red', s=30, zorder=5, label='Start')
+ax.scatter(end[0], end[1], color='green', s=30, zorder=5, label='End')
 
-# Simulate a process of reading stereo images and estimating poses
-for frame_number in range(num_images):
-    file_name = f"{frame_number:06d}.png" 
-    file_path_0 = 'data_odometry_gray/dataset/sequences/' + dataset_number + '/image_0/' + file_name
-    file_path_1 = 'data_odometry_gray/dataset/sequences/' + dataset_number + '/image_1/' + file_name
+ax.set_xlabel('X')
+ax.set_ylabel('Y')
+plt.title('Camera Trajectory')
+ax.legend()
+ax.axis('equal')
 
-    img0 = cv2.imread(file_path_0)
-    img1 = cv2.imread(file_path_1)
-
-    if img0 is not None and img1 is not None and img0_prev is not None:
-        points_now, points_prev = odom.detect_and_match_features(img0, img0_prev)
-        disparity = odom.compute_disparity_map(img0, img1)
-        # depth_map = odom.disparity_to_depth(disparity)
-        depth_map = disparity
-        current_pose = odom.estimate_current_pose(points_now, depth_map)
-        
-        R_change, t_change = odom.calculate_pose_change(current_pose)
-        print(R_change, t_changegi)
-
-        R_updated = R_change @ R_current 
-        t_updated = R_change @ t_current + t_change 
-        print(t_current.ravel())
-        pose_list.append(t_current.ravel())
-
-    img0_prev = img0
-
-print('Completed photo analysis!')
-print('Plotting calculated odometry...')
-
-# Plotting the poses
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-
-# Extract x, y, z coordinates from pose_list
-x_coords = []
-y_coords = []
-z_coords = []
-print(pose_list)
-print(len(pose_list))
-for i in range(num_images):
-    x_coords.append(pose_list[i][0])
-    y_coords.append(pose_list[i][1])
-    z_coords.append(pose_list[i][2])
-
-# Plot the trajectory
-ax.plot(x_coords, y_coords, z_coords, marker='o')
-
-ax.set_xlabel('X Position')
-ax.set_ylabel('Y Position')
-ax.set_zlabel('Z Position')
-ax.set_title('3D Trajectory of the Camera')
-
-print('Displaying odometry!')
-
-# Display the plot
 plt.show()

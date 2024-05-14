@@ -18,7 +18,7 @@ def load_stereo_images(dataset_number, num_images):
 
         if img0 is not None and img1 is not None:
             images.append((img0, img1))
-            if (frame_number+1) % 20 == 0:
+            if (frame_number+1) % 50 == 0:
                 print("Imported " + str(frame_number+1) + " frames.")
         else:
             print(f"Warning: Missing images at frame {frame_number}")
@@ -45,6 +45,18 @@ with open(config_file_path, 'r') as file:
         elif line.startswith('P1'):
             # Extract the numbers from the line, skip the first element
             P1 = [float(num) for num in line.split()[1:]]  
+
+# Import ground truth
+print('Importing and plotting ground truth..')
+gt_file = f'data_odometry_poses/dataset/poses/{dataset_number}.txt'
+data = np.loadtxt(gt_file)
+gt_x = data[:num_images, [11]]
+gt_y = data[:num_images, [3]]
+
+# Display gt trajectory
+fig, ax = plt.subplots()
+ax.plot(gt_x, gt_y, 'g-')
+print('Ground truth imported!')
 
 P0_matrix = np.array(P0).reshape(3, 4)
 P1_matrix = np.array(P1).reshape(3, 4)
@@ -78,21 +90,19 @@ count = 0
 for left_img, right_img in stereo_images:
     vo.process_frame(left_img, right_img)
     count += 1
-    if count % 10 == 0:
+    if count % 50 == 0:
         print(str(count) + " frames processed.")
         tf = vo.get_pose()
-        print(tf)
+        # print(tf[1][2], tf[1][0])
 
 # Display trajectory
 trajectory = vo.get_trajectory()
-fig, ax = plt.subplots()
-ax.plot(trajectory[:, 2], trajectory[:, 0], 'b-')  # Plot only X and Y coordinates
+ax.plot(-trajectory[:, 2], trajectory[:, 0], 'b-')  
 
 # Mark the start and end points
 start = trajectory[0]
 end = trajectory[-1]
 ax.scatter(start[2], start[1], color='red', s=30, zorder=5, label='Start')
-ax.scatter(end[2], end[0], color='green', s=30, zorder=5, label='End')
 
 ax.set_xlabel('X')
 ax.set_ylabel('Y')

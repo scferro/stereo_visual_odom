@@ -26,14 +26,14 @@ def load_stereo_images(dataset_number, num_images):
 
 
 ### INPUTS ###
-dataset_number = '00'  
-num_images = 4000
-feature_type = 'SIFT'        # ORB or SIFT
+dataset_number = '03'  
+num_images = 800
+feature_type = 'ORB'        # ORB or SIFT
 calculate_time = True
 calculate_error = True
 
 
-# Initialize dictionaries to store the values
+# Initialize to store the values
 P0 = []
 P1 = []
 

@@ -2,13 +2,17 @@ import cv2
 import numpy as np
 
 class StereoVisualOdometry:
-    def __init__(self, focal_length, pp, baseline, camera_matrix):
+    def __init__(self, focal_length, pp, baseline, camera_matrix, feature_type='SIFT', filter_ratio=0.5):
         self.focal_length = focal_length
         self.pp = pp
         self.baseline = baseline
         self.camera_matrix = camera_matrix
-        self.sift = cv2.SIFT_create()
-        self.bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
+        if feature_type == 'SIFT':
+            self.feature_detector = cv2.SIFT_create()
+            self.matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
+        elif feature_type == 'ORB':
+            self.feature_detector = cv2.ORB_create()
+            self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
         self.prev_left_image = None
         self.prev_right_image = None
         self.prev_points_3D = None
@@ -26,6 +30,7 @@ class StereoVisualOdometry:
             P2=32 * 1 * 11**2,
             mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY
         )
+        self.filter_ratio = filter_ratio
 
     def compute_disparity(self, img_left, img_right):
         disparity = self.stereo.compute(img_left, img_right).astype(np.float32) / 16.0
@@ -35,17 +40,17 @@ class StereoVisualOdometry:
         return cv2.medianBlur(disparity, ksize=5)
     
     def feature_matching(self, img1, img2):
-        keypoints1, descriptors1 = self.sift.detectAndCompute(img1, None)
-        keypoints2, descriptors2 = self.sift.detectAndCompute(img2, None)
+        keypoints1, descriptors1 = self.feature_detector.detectAndCompute(img1, None)
+        keypoints2, descriptors2 = self.feature_detector.detectAndCompute(img2, None)
         if descriptors1 is None or descriptors2 is None:
             return []  # No descriptors to match
 
-        matches = self.bf.knnMatch(descriptors1, descriptors2, k=2)
+        matches = self.matcher.knnMatch(descriptors1, descriptors2, k=2)
         good_matches = []
+        # Apply Lowe's ratio test
         for m, n in matches:
-            if m.distance < 0.25 * n.distance:
-                if m.queryIdx < len(keypoints1) and m.trainIdx < len(keypoints2):
-                    good_matches.append((m, keypoints1[m.queryIdx], keypoints2[m.trainIdx]))
+            if m.distance < self.filter_ratio * n.distance:
+                good_matches.append((m, keypoints1[m.queryIdx], keypoints2[m.trainIdx]))
         return good_matches
 
     def process_frame(self, left_image, right_image):

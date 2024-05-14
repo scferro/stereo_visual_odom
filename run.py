@@ -2,8 +2,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from StereoVisualOdom import StereoVisualOdometry
-import matplotlib.colors as mcolors
-import matplotlib.cm as cm
+import time
 
 def load_stereo_images(dataset_number, num_images):
     images = []
@@ -26,9 +25,13 @@ def load_stereo_images(dataset_number, num_images):
     return images
 
 
-
+### INPUTS ###
 dataset_number = '00'  
-num_images = 500
+num_images = 4000
+feature_type = 'SIFT'        # ORB or SIFT
+calculate_time = True
+calculate_error = True
+
 
 # Initialize dictionaries to store the values
 P0 = []
@@ -52,6 +55,7 @@ gt_file = f'data_odometry_poses/dataset/poses/{dataset_number}.txt'
 data = np.loadtxt(gt_file)
 gt_x = data[:num_images, [11]]
 gt_y = data[:num_images, [3]]
+gt_z = data[:num_images, [7]]
 
 # Display gt trajectory
 fig, ax = plt.subplots()
@@ -78,22 +82,43 @@ cy = P0[6]
 baseline = np.linalg.norm(C2 - C1)
 camera_matrix = np.array([[focal_length, 0, cx], [0, focal_length, cy], [0, 0, 1]])
 
-vo = StereoVisualOdometry(focal_length, (cx, cy), baseline, camera_matrix)
+vo = StereoVisualOdometry(focal_length, (cx, cy), baseline, camera_matrix, feature_type=feature_type)
 
 # Import images
 print("Importing images...")
 stereo_images = load_stereo_images(dataset_number, num_images)
 print("Import complete!")
 
+if calculate_time:
+    processing_times = []
+if calculate_error:
+    errors = []
+
 print("Processing frames...")
 count = 0
 for left_img, right_img in stereo_images:
+    if calculate_time:
+        start_time = time.time()
     vo.process_frame(left_img, right_img)
+    if calculate_time:
+        end_time = time.time()
+        processing_times.append(end_time - start_time)
     count += 1
     if count % 50 == 0:
         print(str(count) + " frames processed.")
         tf = vo.get_pose()
         # print(tf[1][2], tf[1][0])
+
+    if calculate_error:
+        estimated_pose = vo.get_pose()
+        x_est = -estimated_pose[1][2]
+        y_est = estimated_pose[1][0]
+        z_est = -estimated_pose[1][1]
+        x_gt = gt_x[count-1]
+        y_gt = gt_y[count-1]
+        z_gt = gt_z[count-1]
+        error = np.sqrt((x_est-x_gt)**2 + (y_est-y_gt)**2 + (z_est-z_gt)**2)
+        errors.append(error)
 
 # Display trajectory
 trajectory = vo.get_trajectory()
@@ -111,3 +136,28 @@ ax.legend()
 ax.axis('equal')
 
 plt.show()
+
+if calculate_time:
+    fig, ax = plt.subplots()
+    avg_time = np.mean(processing_times)
+    avg_time_list = [avg_time] * len(processing_times)
+    ax.plot(processing_times, 'b-', label='Processing Time per Frame')
+    ax.plot(avg_time_list, 'r-', label='Average Processing Time')
+    ax.set_xlabel('Frame Number') 
+    ax.set_ylabel('Time (seconds)') 
+    ax.set_ylim([0, 0.25])  
+    ax.set_title('Processing Time per Frame')  
+    ax.legend()
+    print(f"Average processing time: {avg_time}")
+
+    plt.show()
+
+if calculate_error:
+    fig, ax = plt.subplots()
+    ax.plot(errors, 'b-', label='Position Error per Frame')
+    ax.set_xlabel('Frame Number')  
+    ax.set_ylabel('Error (meters)')  
+    ax.set_title('Position Error') 
+    ax.legend()
+
+    plt.show()

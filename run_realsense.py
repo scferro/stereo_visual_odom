@@ -8,7 +8,7 @@ import time
 
 ### INPUTS ###
 feature_type = 'ORB'        # ORB or SIFT of SuperPoint
-calculate_time = True
+calculate_fps = True
 
 
 # Create a context object to manage devices
@@ -63,7 +63,7 @@ camera_matrix = np.array([[focal_length, 0, cx], [0, focal_length, cy], [0, 0, 1
 # Initialize the StereoVisualOdometry class
 vo = StereoVisualOdometry(focal_length, (cx, cy), baseline, camera_matrix, feature_type=feature_type)
 
-processing_times = []
+fps_list = []
 
 print("Processing frames...")
 count = 0
@@ -80,20 +80,17 @@ while True:
     right_ir_frame = frames.get_infrared_frame(2)
     right_ir_image = np.asanyarray(right_ir_frame.get_data())
 
-    start_time = time.time()
     vo.process_frame(left_ir_image, right_ir_image)
-    end_time = time.time()
-    processing_time = end_time - start_time
-    processing_times.append(processing_time)
 
     count += 1
     second_timer = time.time() - timer_start
-    if second_timer > 1.0:
+    if second_timer > 1.0 and calculate_fps:
         fps = count/second_timer
         print(f"Frame Rate: {fps} frames per second.")
         count = 0
         second_timer = 0
         timer_start = time.time()
+        fps_list.append(fps)        
 
     # Display the frames
     cv2.imshow('Left IR', left_ir_image)
@@ -115,7 +112,7 @@ ax.plot(-trajectory[:, 2], trajectory[:, 0], 'b-')
 # Mark the start and end points
 start = trajectory[0]
 end = trajectory[-1]
-ax.scatter(start[2], start[1], color='red', s=30, zorder=5, label='Start')
+ax.scatter(start[2], start[0], color='red', s=30, zorder=5, label='Start')
 
 ax.set_xlabel('X')
 ax.set_ylabel('Y')
@@ -125,18 +122,18 @@ ax.axis('equal')
 
 plt.show()
 
-# Display processing time statistics
-avg_time = np.mean(processing_times)
-print(f"Average processing time: {avg_time}")
+if calculate_fps:
+    # Display processing time statistics
+    avg_time = np.mean(fps_list)
 
-fig, ax = plt.subplots()
-avg_time_list = [avg_time] * len(processing_times)
-ax.plot(processing_times, 'b-', label='Processing Time per Frame')
-ax.plot(avg_time_list, 'r-', label='Average Processing Time')
-ax.set_xlabel('Frame Number')
-ax.set_ylabel('Time (seconds)')
-ax.set_ylim([0, 0.25])
-ax.set_title('Processing Time per Frame')
-ax.legend()
+    fig, ax = plt.subplots()
+    avg_time_list = [avg_time] * len(fps_list)
+    ax.plot(fps_list, 'b-', label='Framerate')
+    ax.plot(avg_time_list, 'r-', label='Average Framerate')
+    ax.set_xlabel('Time (seconds)')
+    ax.set_ylabel('Framerate (fps)')
+    # ax.set_ylim([0, ])
+    ax.set_title('Image Processing Framerate')
+    ax.legend()
 
-plt.show()
+    plt.show()

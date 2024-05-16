@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+# from superpoint.superpoint import SuperPoint
 
 class StereoVisualOdometry:
     def __init__(self, focal_length, pp, baseline, camera_matrix, feature_type='SIFT', filter_ratio=0.5):
@@ -7,12 +8,8 @@ class StereoVisualOdometry:
         self.pp = pp
         self.baseline = baseline
         self.camera_matrix = camera_matrix
-        if feature_type == 'SIFT':
-            self.feature_detector = cv2.SIFT_create()
-            self.matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
-        elif feature_type == 'ORB':
-            self.feature_detector = cv2.ORB_create()
-            self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+        self.feature_type = feature_type
+        self.initialize_feature_detector()
         self.prev_left_image = None
         self.prev_right_image = None
         self.prev_points_3D = None
@@ -22,6 +19,7 @@ class StereoVisualOdometry:
         self.max_depth = 50
         self.min_disparity = 2
         self.max_disparity = 65
+        self.filter_ratio = filter_ratio
         self.stereo = cv2.StereoSGBM_create(
             minDisparity=0,
             numDisparities=64,
@@ -30,7 +28,17 @@ class StereoVisualOdometry:
             P2=32 * 1 * 11**2,
             mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY
         )
-        self.filter_ratio = filter_ratio
+
+    def initialize_feature_detector(self):
+        if self.feature_type == 'SIFT':
+            self.feature_detector = cv2.SIFT_create()
+            self.matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
+        elif self.feature_type == 'ORB':
+            self.feature_detector = cv2.ORB_create()
+            self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+        elif self.feature_type == 'SuperPoint':
+            self.feature_detector = SuperPoint()
+            self.matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
 
     def compute_disparity(self, img_left, img_right):
         disparity = self.stereo.compute(img_left, img_right).astype(np.float32) / 16.0
@@ -38,16 +46,16 @@ class StereoVisualOdometry:
         disparity[disparity == -1.0] = self.min_disparity
         disparity[disparity > self.max_disparity] = self.max_disparity
         return cv2.medianBlur(disparity, ksize=5)
-    
+
     def feature_matching(self, img1, img2):
-        keypoints1, descriptors1 = self.feature_detector.detectAndCompute(img1, None)
-        keypoints2, descriptors2 = self.feature_detector.detectAndCompute(img2, None)
+        if self.feature_type in ['SuperPoint', 'SIFT', 'ORB']:  
+            keypoints1, descriptors1 = self.feature_detector.detectAndCompute(img1, None)
+            keypoints2, descriptors2 = self.feature_detector.detectAndCompute(img2, None)
         if descriptors1 is None or descriptors2 is None:
             return []  # No descriptors to match
 
         matches = self.matcher.knnMatch(descriptors1, descriptors2, k=2)
         good_matches = []
-        # Apply Lowe's ratio test
         for m, n in matches:
             if m.distance < self.filter_ratio * n.distance:
                 good_matches.append((m, keypoints1[m.queryIdx], keypoints2[m.trainIdx]))

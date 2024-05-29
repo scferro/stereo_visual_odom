@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
-# from superpoint.superpoint import SuperPoint
+import torch
+from superpoint import SuperPointFrontend
 
 class StereoVisualOdometry:
     def __init__(self, focal_length, pp, baseline, camera_matrix, feature_type='SIFT', filter_ratio=0.5):
@@ -9,6 +10,7 @@ class StereoVisualOdometry:
         self.baseline = baseline
         self.camera_matrix = camera_matrix
         self.feature_type = feature_type
+        self.filter_ratio = filter_ratio
         self.initialize_feature_detector()
         self.prev_left_image = None
         self.prev_right_image = None
@@ -19,7 +21,6 @@ class StereoVisualOdometry:
         self.max_depth = 50
         self.min_disparity = 2
         self.max_disparity = 65
-        self.filter_ratio = filter_ratio
         self.stereo = cv2.StereoSGBM_create(
             minDisparity=0,
             numDisparities=64,
@@ -37,7 +38,8 @@ class StereoVisualOdometry:
             self.feature_detector = cv2.ORB_create()
             self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
         elif self.feature_type == 'SuperPoint':
-            self.feature_detector = SuperPoint()
+            weights_path = '/home/scferro/Documents/msai495/cv_final_project/SuperPointPretrainedNetwork/superpoint_v1.pth'
+            self.feature_detector = SuperPointFrontend(weights_path, nms_dist=1, conf_thresh=0.1, nn_thresh=1.0, cuda=torch.cuda.is_available())
             self.matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
 
     def compute_disparity(self, img_left, img_right):
@@ -47,18 +49,31 @@ class StereoVisualOdometry:
         disparity[disparity > self.max_disparity] = self.max_disparity
         return cv2.medianBlur(disparity, ksize=5)
 
+    def superpoint_detect_and_compute(self, img):
+        pts, desc, _ = self.feature_detector.run(img.astype(np.float32) / 255.)
+        keypoints = [cv2.KeyPoint(p[0], p[1], 1) for p in pts.T]
+        descriptors = desc.T if desc is not None else None
+        return keypoints, descriptors
+
     def feature_matching(self, img1, img2):
-        if self.feature_type in ['SuperPoint', 'SIFT', 'ORB']:  
+        if self.feature_type == 'SuperPoint':
+            keypoints1, descriptors1 = self.superpoint_detect_and_compute(img1)
+            keypoints2, descriptors2 = self.superpoint_detect_and_compute(img2)
+        elif self.feature_type == 'SIFT' or self.feature_type == 'ORB':
             keypoints1, descriptors1 = self.feature_detector.detectAndCompute(img1, None)
             keypoints2, descriptors2 = self.feature_detector.detectAndCompute(img2, None)
+
         if descriptors1 is None or descriptors2 is None:
             return []  # No descriptors to match
 
         matches = self.matcher.knnMatch(descriptors1, descriptors2, k=2)
         good_matches = []
-        for m, n in matches:
-            if m.distance < self.filter_ratio * n.distance:
-                good_matches.append((m, keypoints1[m.queryIdx], keypoints2[m.trainIdx]))
+        try:
+            for m, n in matches:
+                if m.distance < self.filter_ratio * n.distance:
+                    good_matches.append((m, keypoints1[m.queryIdx], keypoints2[m.trainIdx]))
+        except ValueError as e:
+            pass
         return good_matches
 
     def process_frame(self, left_image, right_image):

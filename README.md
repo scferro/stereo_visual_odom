@@ -6,4 +6,4 @@ This repository contains python code for performing visual odometry from stereo 
 ## Files
 - `run_kitti.py`: This script performs visual odometry on images from the KITTI dataset.
 - `run_realsense.py`: This script performs visual odometry using video streams from a RealSense d435i camera.
-- `StereoVisualOdom.py`: This module processes stereo camera images to compute visual odometry, providing essential functionalities for motion tracking and environment mapping.
+- `StereoVisualOdom.py`: This contains a the StereoVisualOdometry class, which processes stereo camera images to compute visual odometry, providing essential functionalities for motion tracking and environment mapping.

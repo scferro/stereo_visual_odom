@@ -5,22 +5,29 @@ from superpoint import SuperPointFrontend
 
 class StereoVisualOdometry:
     def __init__(self, focal_length, pp, baseline, camera_matrix, feature_type='SIFT', filter_ratio=0.5):
+        # Initialize class variables
         self.focal_length = focal_length
         self.pp = pp
         self.baseline = baseline
         self.camera_matrix = camera_matrix
         self.feature_type = feature_type
         self.filter_ratio = filter_ratio
+        # Initialize the feature detector based on the feature type
         self.initialize_feature_detector()
+        # Previous images and 3D points
         self.prev_left_image = None
         self.prev_right_image = None
         self.prev_points_3D = None
+        # Rotation and translation matrices
         self.R = np.eye(3)
         self.t = np.zeros((3, 1))
+        # List to store the trajectory
         self.trajectory = []
+        # Disparity map parameters
         self.max_depth = 50
         self.min_disparity = 2
         self.max_disparity = 65
+        # Stereo block matching configuration
         self.stereo = cv2.StereoSGBM_create(
             minDisparity=0,
             numDisparities=64,
@@ -31,6 +38,7 @@ class StereoVisualOdometry:
         )
 
     def initialize_feature_detector(self):
+        # Initialize the feature detector and matcher based on the feature type
         if self.feature_type == 'SIFT':
             self.feature_detector = cv2.SIFT_create()
             self.matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
@@ -43,6 +51,7 @@ class StereoVisualOdometry:
             self.matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
 
     def compute_disparity(self, img_left, img_right):
+        # Compute the disparity map between the left and right images
         disparity = self.stereo.compute(img_left, img_right).astype(np.float32) / 16.0
         disparity[disparity == 0.0] = self.min_disparity
         disparity[disparity == -1.0] = self.min_disparity
@@ -50,12 +59,14 @@ class StereoVisualOdometry:
         return cv2.medianBlur(disparity, ksize=5)
 
     def superpoint_detect_and_compute(self, img):
+        # Detect and compute features using SuperPoint
         pts, desc, _ = self.feature_detector.run(img.astype(np.float32) / 255.)
         keypoints = [cv2.KeyPoint(p[0], p[1], 1) for p in pts.T]
         descriptors = desc.T if desc is not None else None
         return keypoints, descriptors
 
     def feature_matching(self, img1, img2):
+        # Match features between two images
         if self.feature_type == 'SuperPoint':
             keypoints1, descriptors1 = self.superpoint_detect_and_compute(img1)
             keypoints2, descriptors2 = self.superpoint_detect_and_compute(img2)
@@ -77,19 +88,24 @@ class StereoVisualOdometry:
         return good_matches
 
     def process_frame(self, left_image, right_image):
+        # Process the current frame to estimate motion
         if self.prev_left_image is None:
             self.prev_left_image = left_image
             self.prev_right_image = right_image
             return np.eye(4)
 
+        # Compute disparity map
         disparity = self.compute_disparity(cv2.equalizeHist(self.prev_left_image), cv2.equalizeHist(self.prev_right_image))
+        # Match features between previous and current left images
         matches = self.feature_matching(self.prev_left_image, left_image)
 
         points1 = np.float32([m[1].pt for m in matches])
         points2 = np.float32([m[2].pt for m in matches])
 
+        # Calculate 3D points from disparity map
         valid_3D_points, valid_2D_points = self.calculate_3D_points(disparity, points1, points2)
         if len(valid_3D_points) >= 4:
+            # Estimate motion from 3D-2D point correspondences
             self.estimate_motion(valid_3D_points, valid_2D_points)
 
         self.prev_left_image = left_image
@@ -98,6 +114,7 @@ class StereoVisualOdometry:
         return self.current_transformation_matrix()
 
     def calculate_3D_points(self, disparity, points1, points2):
+        # Calculate 3D points from disparity and 2D points
         valid_3D_points = []
         valid_2D_points = []
         for pt1, pt2 in zip(points1, points2):
@@ -111,6 +128,7 @@ class StereoVisualOdometry:
         return np.array(valid_3D_points), np.array(valid_2D_points)
 
     def estimate_motion(self, points_3D, points_2D):
+        # Estimate motion using solvePnPRansac
         _, rvec, tvec, inliers = cv2.solvePnPRansac(points_3D, points_2D, self.camera_matrix, None)
         R, _ = cv2.Rodrigues(rvec)
         self.R = self.R @ R
@@ -118,10 +136,13 @@ class StereoVisualOdometry:
         self.trajectory.append(self.t.ravel().copy())
 
     def current_transformation_matrix(self):
+        # Return the current transformation matrix
         return np.vstack((np.hstack((self.R, self.t)), [0, 0, 0, 1]))
 
     def get_pose(self):
+        # Get the current pose (rotation and translation)
         return self.R, self.t
 
     def get_trajectory(self):
+        # Get the full trajectory
         return np.array(self.trajectory)

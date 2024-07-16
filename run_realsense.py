@@ -105,7 +105,7 @@ while True:
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-# Stop the pipeline and release resources
+
 pipeline.stop()
 out.release()  # Release the VideoWriter object
 cv2.destroyAllWindows()

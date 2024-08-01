@@ -176,7 +176,7 @@ if calculate_error:
     plt.show()
 
 # Animation
-fig, ax = plt.subplots()
+fig, ax = plt.subplots(figsize=(10, 8))
 line_gt, = ax.plot([], [], 'g-', lw=2, label='Ground Truth')
 line_est, = ax.plot([], [], 'b-', lw=2, label='Estimated')
 point, = ax.plot([], [], 'ro', ms=5)
@@ -189,7 +189,9 @@ ax.axis('equal')
 
 x_min, x_max = min(min(gt_x), -max(trajectory[:, 2])), max(max(gt_x), -min(trajectory[:, 2]))
 y_min, y_max = min(min(gt_y), min(trajectory[:, 0])), max(max(gt_y), max(trajectory[:, 0]))
-margin = 0.1 * max(x_max - x_min, y_max - y_min)
+
+# Increase the margin to 20% of the range
+margin = 0.2 * max(x_max - x_min, y_max - y_min)
 ax.set_xlim(x_min - margin, x_max + margin)
 ax.set_ylim(y_min - margin, y_max + margin)
 
@@ -207,10 +209,15 @@ def animate(i):
     point.set_data(x[-1], y[-1])
     return line_gt, line_est, point
 
-ani = animation.FuncAnimation(fig, animate, init_func=init, frames=len(trajectory), interval=33, blit=True, repeat=True)
+# Calculate the desired frame rate (you can adjust this as needed)
+fps = 30
+
+ani = animation.FuncAnimation(fig, animate, init_func=init, frames=len(trajectory), interval=1000/fps, blit=True, repeat=False)
 
 # Save the animation as a video file
-Writer = animation.FFMpegWriter(fps=30)
+Writer = animation.FFMpegWriter(fps=fps)
 ani.save(f'trajectory_animation_{feature_type}_{dataset_number}.mp4', writer=Writer)
 
-plt.show()
+plt.close(fig)  # Close the figure after saving
+
+print(f"Trajectory animation saved as trajectory_animation_{feature_type}_{dataset_number}.mp4")
